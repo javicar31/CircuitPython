@@ -1,0 +1,123 @@
+'''
+MODIFIED RP2040 Prop-Maker Feather Example
+This guide explains how to control the various features of the Prop-Maker Feather.
+You can easily change values in this code to customize your project.
+'''
+
+import time
+import board
+import audiocore
+import audiobusio
+import audiomixer
+import pwmio
+from digitalio import DigitalInOut, Direction, Pull
+import neopixel
+from adafruit_led_animation.animation.rainbow import Rainbow
+# To use other animations, you might need to import them, for example:
+# from adafruit_led_animation.animation.comet import Comet
+from adafruit_motor import servo
+import adafruit_lis3dh
+
+# --- HELPER FUNCTION ---
+def map_range(x, in_min, in_max, out_min, out_max):
+  """
+  Maps a number from one range to another. This is a replacement for the
+  function that was previously in the 'simpleio' library.
+  """
+  return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min
+
+# --- CONTROL TOGGLES ---
+# Use these settings to easily turn features on or off.
+# Set to True to enable, False to disable.
+SERVO_CONTROL_ENABLED = True
+SERVO_USES_ACCELEROMETER = True # If True, accelerometer controls servo. If False, it sweeps.
+AUDIO_ENABLED = True
+
+# --- POWER SETUP ---
+# This pin provides power to the external components (NeoPixels, Servo, Audio Amp).
+external_power = DigitalInOut(board.EXTERNAL_POWER)
+external_power.direction = Direction.OUTPUT
+external_power.value = True
+
+# --- AUDIO PLAYBACK SETUP ---
+if AUDIO_ENABLED:
+    # 1. Change "StreetChicken.wav" to the name of your WAV file.
+    # 2. Your file must be on the RP2040's internal storage (CIRCUITPY drive).
+    # 3. For best results, use a 22,050 Hz, 16-bit, Mono WAV file.
+    try:
+        wave_file = open("StreetChicken.wav", "rb")
+        wave = audiocore.WaveFile(wave_file)
+        audio = audiobusio.I2SOut(board.I2S_BIT_CLOCK, board.I2S_WORD_SELECT, board.I2S_DATA)
+        mixer = audiomixer.Mixer(voice_count=1, sample_rate=22050, channel_count=1,
+                                 bits_per_sample=16, samples_signed=True)
+        audio.play(mixer)
+        mixer.voice[0].play(wave, loop=True) # loop=True plays it forever.
+        mixer.voice[0].level = 0.5 # Adjust volume: 0.0 to 1.0
+    except OSError:
+        print("No WAV file found or audio hardware error. Skipping audio playback.")
+        AUDIO_ENABLED = False
+
+
+# --- SERVO CONTROL SETUP ---
+if SERVO_CONTROL_ENABLED:
+    pwm = pwmio.PWMOut(board.EXTERNAL_SERVO, duty_cycle=2 ** 15, frequency=50)
+    prop_servo = servo.Servo(pwm)
+    # Variables for the simple sweep animation
+    angle = 90
+    angle_increment = 5
+    prop_servo.angle = angle
+
+# --- EXTERNAL BUTTON SETUP ---
+switch = DigitalInOut(board.EXTERNAL_BUTTON)
+switch.direction = Direction.INPUT
+switch.pull = Pull.UP
+switch_state = False
+
+# --- NEOPIXEL SETUP ---
+# 1. Change `num_pixels` to match your LED strip.
+num_pixels = 30
+pixels = neopixel.NeoPixel(board.EXTERNAL_NEOPIXELS, num_pixels)
+# 2. Adjust brightness: 0.0 is off, 1.0 is max.
+pixels.brightness = 0.3
+
+# --- LED ANIMATION ---
+# This requires the adafruit_led_animation library in your /lib folder.
+rainbow = Rainbow(pixels, speed=0.05, period=2)
+
+# --- ACCELEROMETER SETUP ---
+i2c = board.I2C()
+int1 = DigitalInOut(board.ACCELEROMETER_INTERRUPT)
+lis3dh = adafruit_lis3dh.LIS3DH_I2C(i2c, int1=int1)
+lis3dh.range = adafruit_lis3dh.RANGE_2_G
+
+print("Setup complete. Starting main loop.")
+
+# --- MAIN LOOP ---
+while True:
+    rainbow.animate()
+
+    x, y, z = [
+        value / adafruit_lis3dh.STANDARD_GRAVITY for value in lis3dh.acceleration
+    ]
+
+    if SERVO_CONTROL_ENABLED:
+        if SERVO_USES_ACCELEROMETER:
+            # Map the X-axis reading (-1.0 to 1.0 G) to the servo angle (0 to 180).
+            # We use the helper function we defined at the top of the code.
+            servo_angle = map_range(x, -1.0, 1.0, 0, 180)
+            # Clamp the angle to be safe for the servo (prevents errors from noisy sensor data)
+            prop_servo.angle = max(0, min(180, servo_angle))
+        else:
+            angle += angle_increment
+            if angle >= 180 or angle <= 0:
+                angle_increment = -angle_increment
+            prop_servo.angle = angle
+
+    if not switch.value and not switch_state:
+        print("Button pressed! Toggling external power.")
+        external_power.value = not external_power.value
+        switch_state = True
+    if switch.value and switch_state:
+        switch_state = False
+
+    time.sleep(0.02)
