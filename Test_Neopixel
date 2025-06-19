@@ -1,0 +1,25 @@
+import time
+import board
+import neopixel
+
+# Setup NeoPixel on pin A5 (SCL)
+pixel = neopixel.NeoPixel(board.A5, 1, brightness=0.3, auto_write=True)
+
+colors = [
+    (255, 0, 0),   # Red
+    (0, 255, 0),   # Green
+    (0, 0, 255),   # Blue
+    (255, 255, 0), # Yellow
+    (0, 255, 255), # Cyan
+    (255, 0, 255), # Magenta
+    (255, 255, 255), # White
+    (0, 0, 0)      # Off
+]
+
+print("NeoPixel A5 test starting...")
+
+while True:
+    for color in colors:
+        pixel[0] = color
+        print(f"Set color to {color}")
+        time.sleep(0.5)
